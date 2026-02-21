@@ -1,0 +1,75 @@
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7
+    restart: unless-stopped
+    labels:
+      - "com.pixime.theme.version=${THEME_VERSION:-latest}"
+      - "com.pixime.deployed.at=${DEPLOYED_AT:-unknown}"
+    env_file:
+      - .env
+      - theme.version
+    environment:
+      - TZ=Europe/Paris
+      - JAVA_OPTS_APPEND=-Dkeycloak.profile.feature.upload_scripts=enabled
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KEYCLOAK_ADMIN_USERNAME}
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KC_DB=postgres
+      - KC_DB_URL_HOST=keycloak-db
+      - KC_DB_URL_DATABASE=keycloak
+      - KC_DB_USERNAME=${POSTGRES_USERNAME}
+      - KC_DB_PASSWORD=${POSTGRES_PASSWORD}
+      # Keycloak v2 configuration for reverse proxy (Traefik)
+      - KC_HOSTNAME=${KC_HOSTNAME}
+      - KC_PROXY_HEADERS=xforwarded
+      - KC_HTTP_ENABLED=true
+      # Email configuration
+      - MAIL_FROM=${MAIL_FROM}
+      - MAIL_HOST=${MAIL_HOST}
+      - MAIL_PORT=${MAIL_PORT}
+      - MAIL_SSL_ENABLE=${MAIL_SSL_ENABLE}
+      - MAIL_STARTTLS_ENABLE=${MAIL_STARTTLS_ENABLE}
+      - MAIL_AUTH=${MAIL_AUTH}
+      - MAIL_USERNAME=${MAIL_USERNAME}
+      - MAIL_PASSWORD=${MAIL_PASSWORD}
+    command: ["start", "--import-realm"]
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    ports:
+      - "8080"
+    volumes:
+      - ./keycloak/providers:/opt/keycloak/providers
+      - ./keycloak/themes:/opt/keycloak/themes
+      - ./keycloak/import:/opt/keycloak/data/import
+    networks:
+      - keycloak-internal
+      - dokploy-network
+
+  keycloak-db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=keycloak
+      - POSTGRES_USER=${POSTGRES_USERNAME}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME} -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    networks:
+      - keycloak-internal
+
+networks:
+  keycloak-internal:
+    driver: overlay # Overlay for Swarm
+    attachable: true # allow debug/troubleshooting
+
+  dokploy-network:
+    external: true # Use the Traefik network
+
+volumes:
+  keycloak-db-data: {}
